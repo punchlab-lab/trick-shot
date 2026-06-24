@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trick Shot</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  #stage { position: fixed; inset: 0; background: #000; }
+  #display { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  /* Start overlay */
+  #start-overlay {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 28px;
+    background: radial-gradient(circle at 50% 40%, #1a1a1f 0%, #000 70%);
+    z-index: 20; text-align: center; padding: 24px;
+  }
+  #start-overlay h1 { color: #fff; font-size: 34px; font-weight: 600; letter-spacing: -0.02em; }
+  #start-overlay p { color: #8a8a92; font-size: 16px; max-width: 380px; line-height: 1.5; }
+  #start-btn {
+    margin-top: 4px; padding: 18px 44px; font-size: 20px; font-weight: 600;
+    color: #000; background: #fff; border: none; border-radius: 999px; cursor: pointer;
+    transition: transform .12s ease, opacity .12s ease;
+  }
+  #start-btn:hover { transform: scale(1.04); }
+  #start-btn:active { transform: scale(0.98); }
+  #error { color: #ff6b6b; font-size: 15px; max-width: 420px; line-height: 1.5; min-height: 1px; }
+
+  /* Controls */
+  #controls {
+    position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 14px;
+    background: rgba(20,20,24,0.72); backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    padding: 12px 16px; border-radius: 18px; border: 1px solid rgba(255,255,255,0.08);
+    z-index: 10; transition: opacity .35s ease; user-select: none;
+  }
+  #controls.hidden { opacity: 0; pointer-events: none; }
+  .ctrl-btn {
+    width: 44px; height: 44px; border-radius: 12px; border: none; cursor: pointer;
+    background: rgba(255,255,255,0.10); color: #fff; font-size: 22px; font-weight: 500;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .12s ease;
+  }
+  .ctrl-btn:hover { background: rgba(255,255,255,0.20); }
+  .ctrl-btn:active { background: rgba(255,255,255,0.30); }
+  .ctrl-btn.wide { width: auto; padding: 0 16px; font-size: 15px; gap: 8px; }
+  #delay-readout {
+    min-width: 92px; text-align: center; color: #fff;
+    display: flex; flex-direction: column; line-height: 1.1;
+  }
+  #delay-value { font-size: 22px; font-weight: 700; }
+  #delay-label { font-size: 11px; color: #9a9aa2; letter-spacing: 0.04em; text-transform: uppercase; }
+  #status {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    color: #f5c451; font-size: 13px; background: rgba(20,20,24,0.7);
+    padding: 6px 14px; border-radius: 999px; z-index: 10;
+    transition: opacity .35s ease; opacity: 0;
+  }
+  #status.show { opacity: 1; }
+  select.ctrl-btn { width: auto; padding: 0 12px; font-size: 14px; -webkit-appearance: none; appearance: none; }
+  .hidden-el { display: none !important; }
+
+  /* Clips toggle button (top-left) */
+  #clips-toggle {
+    position: fixed; top: 18px; left: 18px; z-index: 30;
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px; border-radius: 12px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(20,20,24,0.72); backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    color: #fff; font-size: 14px; font-weight: 600; font-family: inherit;
+  }
+  #clips-toggle:hover { background: rgba(40,40,46,0.85); }
+
+  /* Sidebar */
+  #sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 220px; z-index: 30;
+    background: rgba(14,14,17,0.92); backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid rgba(255,255,255,0.08);
+    display: flex; flex-direction: column;
+    transform: translateX(-100%); transition: transform .28s ease;
+  }
+  #sidebar.open { transform: translateX(0); }
+  #sidebar-head {
+    padding: 20px 18px 12px; color: #fff; font-size: 17px; font-weight: 700;
+    flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  }
+  #sidebar-close {
+    width: 30px; height: 30px; border-radius: 8px; border: none; cursor: pointer;
+    background: rgba(255,255,255,0.08); color: #fff; font-size: 14px;
+  }
+  #sidebar-close:hover { background: rgba(255,255,255,0.18); }
+  #clips-list { flex: 1 1 auto; overflow-y: auto; padding: 4px 12px 12px; }
+  #sidebar-foot {
+    flex: 0 0 auto; padding: 12px 16px; color: #6f6f78; font-size: 11px; line-height: 1.4;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .clips-empty { color: #6f6f78; font-size: 13px; line-height: 1.5; padding: 12px 6px; }
+  .clip-item {
+    margin-bottom: 12px; border-radius: 12px; overflow: hidden;
+    background: rgba(255,255,255,0.05); border: 1px solid transparent;
+    transition: border-color .12s ease, background .12s ease;
+  }
+  .clip-item:hover { background: rgba(255,255,255,0.09); }
+  .clip-item.active { border-color: #f5c451; }
+  .clip-thumb { width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover; cursor: pointer; background: #000; }
+  .clip-meta {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 10px 4px; cursor: pointer;
+  }
+  .clip-time { color: #fff; font-size: 13px; font-weight: 600; }
+  .clip-dur { color: #9a9aa2; font-size: 12px; }
+  .clip-actions { display: flex; gap: 6px; padding: 2px 8px 8px; }
+  .clip-btn {
+    flex: 1; height: 30px; border-radius: 8px; border: none; cursor: pointer;
+    background: rgba(255,255,255,0.08); color: #fff; font-size: 14px;
+  }
+  .clip-btn:hover { background: rgba(255,255,255,0.18); }
+
+  /* Review overlay (looped playback of a clip) */
+  #review {
+    position: fixed; inset: 0; z-index: 25; background: #000;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #review-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #review-close {
+    position: fixed; top: 18px; right: 18px; z-index: 26;
+    width: 48px; height: 48px; border-radius: 999px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(20,20,24,0.72); backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    color: #fff; font-size: 22px; line-height: 1;
+  }
+  #review-close:hover { background: rgba(60,60,66,0.9); }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="display"></canvas>
+  </div>
+
+  <div id="status"></div>
+
+  <button id="clips-toggle" class="hidden-el" title="Show/hide clips (C)">☰ <span id="clips-count">Clips</span></button>
+
+  <aside id="sidebar">
+    <div id="sidebar-head"><span>Clips</span><button id="sidebar-close" title="Hide (C)">✕</button></div>
+    <div id="clips-list"></div>
+    <div id="sidebar-foot">Clips clear when you reload — tap ⤓ to keep one.</div>
+  </aside>
+
+  <div id="review" class="hidden-el">
+    <video id="review-video" loop autoplay playsinline muted></video>
+    <button id="review-close" title="Close (Esc)">✕</button>
+  </div>
+
+  <div id="controls" class="hidden-el">
+    <button class="ctrl-btn" id="minus" title="Less delay (↓)">−</button>
+    <div id="delay-readout">
+      <span id="delay-value">3.0s</span>
+      <span id="delay-label">Delay</span>
+    </div>
+    <button class="ctrl-btn" id="plus" title="More delay (↑)">+</button>
+    <select class="ctrl-btn hidden-el" id="camera-select" title="Camera"></select>
+    <button class="ctrl-btn wide" id="save" title="Capture clip to the Clips panel (Space)">● Clip</button>
+    <button class="ctrl-btn wide" id="fullscreen" title="Full screen (F)">⛶ Full</button>
+  </div>
+
+  <div id="start-overlay">
+    <h1>Trick Shot</h1>
+    <p>See yourself on a delay. Press Start, allow the camera, then watch your moves play back a few seconds later. Tap <b>Space</b> to capture the last few seconds — saved clips appear in the <b>☰ Clips</b> panel, click one to replay it full screen.</p>
+    <button id="start-btn">Start</button>
+    <div id="error"></div>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+
+  // --- Config ---
+  const MIN_DELAY = 0.5;
+  const MAX_DELAY = 10;
+  const STEP = 0.5;
+  let delaySec = 3.0;
+
+  // How much history to keep for the "save clip" feature (2× delay, capped for memory).
+  const SAVE_CAP_SEC = 12;
+  function saveWindowSec() { return Math.min(2 * delaySec, SAVE_CAP_SEC); }
+  function retentionSec() { return Math.max(delaySec, saveWindowSec()); }
+
+  // --- Elements ---
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.setAttribute("playsinline", "");
+
+  const canvas = document.getElementById("display");
+  const ctx = canvas.getContext("2d");
+  const startOverlay = document.getElementById("start-overlay");
+  const startBtn = document.getElementById("start-btn");
+  const errorEl = document.getElementById("error");
+  const controls = document.getElementById("controls");
+  const delayValue = document.getElementById("delay-value");
+  const statusEl = document.getElementById("status");
+  const cameraSelect = document.getElementById("camera-select");
+  const sidebar = document.getElementById("sidebar");
+  const clipsList = document.getElementById("clips-list");
+  const clipsCountEl = document.getElementById("clips-count");
+  const clipsToggle = document.getElementById("clips-toggle");
+  const review = document.getElementById("review");
+  const reviewVideo = document.getElementById("review-video");
+  const reviewClose = document.getElementById("review-close");
+
+  // --- Frame ring buffer ---
+  // Each entry: { bitmap: ImageBitmap, t: ms }
+  let frames = [];
+  let currentStream = null;
+  let running = false;
+  let lastCaptureT = 0;
+  const CAPTURE_INTERVAL = 1000 / 30; // ~30fps capture cap
+
+  // --- Keep the Mac awake while running (Screen Wake Lock API) ---
+  let wakeLock = null;
+  async function requestWakeLock() {
+    if (!("wakeLock" in navigator)) return;
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } catch (e) { /* not fatal — app still works, screen may sleep */ }
+  }
+  async function releaseWakeLock() {
+    try { await wakeLock?.release(); } catch (e) {}
+    wakeLock = null;
+  }
+  // The OS drops the lock when the tab is hidden; re-acquire when visible again.
+  document.addEventListener("visibilitychange", () => {
+    if (running && document.visibilityState === "visible" && !wakeLock) requestWakeLock();
+  });
+
+  // --- Save clip (press Space) ---
+  let saving = false;
+  let deferredClose = []; // bitmaps the capture loop wanted to free mid-save
+  let clips = [];         // session gallery: { id, url, blob, ext, thumbUrl, time, durationSec }
+  let clipSeq = 0;
+
+  function pickMimeType() {
+    if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
+    const candidates = [
+      "video/mp4;codecs=avc1.42E01E",
+      "video/mp4",
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm"
+    ];
+    for (const t of candidates) { if (MediaRecorder.isTypeSupported(t)) return t; }
+    return "";
+  }
+
+  function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+  function clipFilename(ext) {
+    const d = new Date();
+    const stamp = d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) +
+                  "-" + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
+    return "trickshot-" + stamp + "." + ext;
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  function finishSaving() {
+    saving = false;
+    // Release any bitmaps the capture loop deferred while we were encoding.
+    for (const bmp of deferredClose) { try { bmp.close(); } catch (e) {} }
+    deferredClose = [];
+  }
+
+  async function saveClip() {
+    if (!running || saving) return;
+
+    const mimeType = pickMimeType();
+    if (!mimeType) { flashStatus("Saving isn’t supported in this browser"); return; }
+
+    // Snapshot the frames in the save window (last 2×delay, capped). Hold strong
+    // references so the capture loop's cleanup can't free them mid-encode.
+    const t0cut = performance.now() - saveWindowSec() * 1000;
+    const clip = frames.filter(f => f.t >= t0cut);
+    if (clip.length < 2) { flashStatus("Not enough video yet"); return; }
+
+    saving = true;
+    setStatusPersistent("Saving…");
+
+    const w = clip[0].w, h = clip[0].h;
+    const durationSec = Math.max(0.1, (clip[clip.length - 1].t - clip[0].t) / 1000);
+    const off = document.createElement("canvas");
+    off.width = w; off.height = h;
+    const offCtx = off.getContext("2d");
+    // Draw the first frame immediately so the stream starts with content.
+    offCtx.drawImage(clip[0].bitmap, 0, 0, w, h);
+
+    // Grab a small thumbnail from that first frame for the Clips sidebar.
+    const thumbUrl = makeThumb(clip[0].bitmap, w, h);
+
+    const stream = off.captureStream(30);
+    let recorder;
+    try {
+      recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+    } catch (e) {
+      finishSaving(); clearStatusPersistent();
+      flashStatus("Couldn’t start the recorder"); return;
+    }
+
+    const chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    recorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      const ext = mimeType.indexOf("mp4") !== -1 ? "mp4" : "webm";
+      const blob = new Blob(chunks, { type: mimeType });
+      finishSaving();
+      clearStatusPersistent();
+      if (blob.size > 0) {
+        addClip(blob, ext, thumbUrl, durationSec);
+        flashStatus("Clip saved ✓ — open Clips ☰");
+      } else {
+        flashStatus("Save failed — nothing recorded");
+      }
+    };
+
+    recorder.start();
+
+    // Replay the snapshot onto the offscreen canvas, paced to the original timing,
+    // so the encoded clip keeps real-time duration. captureStream samples the canvas.
+    const baseT = clip[0].t;
+    const startWall = performance.now();
+    let i = 1;
+    function pump() {
+      const elapsed = performance.now() - startWall;
+      while (i < clip.length && (clip[i].t - baseT) <= elapsed) {
+        offCtx.drawImage(clip[i].bitmap, 0, 0, w, h);
+        i++;
+      }
+      if (i < clip.length) {
+        requestAnimationFrame(pump);
+      } else {
+        // Let the last frame land in the stream, then stop.
+        setTimeout(() => { if (recorder.state !== "inactive") recorder.stop(); }, 200);
+      }
+    }
+    requestAnimationFrame(pump);
+  }
+
+  // --- Clips sidebar + review ---
+  function makeThumb(bitmap, w, h) {
+    const tw = 160, th = Math.round(tw * h / w);
+    const tc = document.createElement("canvas");
+    tc.width = tw; tc.height = th;
+    tc.getContext("2d").drawImage(bitmap, 0, 0, tw, th);
+    try { return tc.toDataURL("image/jpeg", 0.6); } catch (e) { return ""; }
+  }
+
+  function fmtClock(d) {
+    return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
+  }
+
+  function addClip(blob, ext, thumbUrl, durationSec) {
+    const clip = {
+      id: ++clipSeq,
+      url: URL.createObjectURL(blob),
+      blob, ext, thumbUrl,
+      time: new Date(),
+      durationSec
+    };
+    clips.unshift(clip); // newest first
+    renderClips();
+    updateClipsCount();
+  }
+
+  function deleteClip(id) {
+    const idx = clips.findIndex(c => c.id === id);
+    if (idx === -1) return;
+    const [clip] = clips.splice(idx, 1);
+    if (reviewClipId === clip.id) closeReview();
+    try { URL.revokeObjectURL(clip.url); } catch (e) {}
+    renderClips();
+    updateClipsCount();
+  }
+
+  function updateClipsCount() {
+    clipsCountEl.textContent = clips.length ? "Clips (" + clips.length + ")" : "Clips";
+  }
+
+  function renderClips() {
+    clipsList.innerHTML = "";
+    if (!clips.length) {
+      const empty = document.createElement("div");
+      empty.className = "clips-empty";
+      empty.textContent = "No clips yet — press Space to capture the last few seconds.";
+      clipsList.appendChild(empty);
+      return;
+    }
+    for (const clip of clips) {
+      const item = document.createElement("div");
+      item.className = "clip-item" + (clip.id === reviewClipId ? " active" : "");
+
+      const thumb = document.createElement("img");
+      thumb.className = "clip-thumb";
+      thumb.src = clip.thumbUrl;
+      thumb.alt = "clip";
+      thumb.addEventListener("click", () => openReview(clip.id));
+
+      const meta = document.createElement("div");
+      meta.className = "clip-meta";
+      meta.innerHTML = '<span class="clip-time">' + fmtClock(clip.time) + '</span>' +
+                       '<span class="clip-dur">' + clip.durationSec.toFixed(1) + 's</span>';
+      meta.addEventListener("click", () => openReview(clip.id));
+
+      const actions = document.createElement("div");
+      actions.className = "clip-actions";
+      const dl = document.createElement("button");
+      dl.className = "clip-btn"; dl.title = "Download"; dl.textContent = "⤓";
+      dl.addEventListener("click", (e) => { e.stopPropagation(); downloadBlob(clip.blob, clipFilename(clip.ext)); });
+      const del = document.createElement("button");
+      del.className = "clip-btn"; del.title = "Delete"; del.textContent = "🗑";
+      del.addEventListener("click", (e) => { e.stopPropagation(); deleteClip(clip.id); });
+      actions.appendChild(dl); actions.appendChild(del);
+
+      item.appendChild(thumb);
+      item.appendChild(meta);
+      item.appendChild(actions);
+      clipsList.appendChild(item);
+    }
+  }
+
+  let sidebarOpen = false;
+  function toggleSidebar(force) {
+    sidebarOpen = (typeof force === "boolean") ? force : !sidebarOpen;
+    sidebar.classList.toggle("open", sidebarOpen);
+  }
+
+  let reviewClipId = null;
+  function openReview(id) {
+    const clip = clips.find(c => c.id === id);
+    if (!clip) return;
+    reviewClipId = id;
+    reviewVideo.src = clip.url;
+    reviewVideo.play().catch(() => {});
+    review.classList.remove("hidden-el");
+    renderClips(); // refresh active highlight
+  }
+  function closeReview() {
+    reviewClipId = null;
+    review.classList.add("hidden-el");
+    reviewVideo.pause();
+    reviewVideo.removeAttribute("src");
+    reviewVideo.load();
+    renderClips();
+  }
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+  }
+
+  let statusPinned = false;
+  function flashStatus(text) {
+    statusEl.textContent = text;
+    statusEl.classList.add("show");
+    statusPinned = false;
+    clearTimeout(flashStatus._t);
+    flashStatus._t = setTimeout(() => { if (!statusPinned) statusEl.classList.remove("show"); }, 1400);
+  }
+  // Show a status that stays until cleared (used during the multi-second save encode).
+  function setStatusPersistent(text) {
+    clearTimeout(flashStatus._t);
+    statusPinned = true;
+    statusEl.textContent = text;
+    statusEl.classList.add("show");
+  }
+  function clearStatusPersistent() {
+    statusPinned = false;
+    statusEl.classList.remove("show");
+  }
+
+  function updateDelayReadout() {
+    delayValue.textContent = delaySec.toFixed(1) + "s";
+  }
+
+  function changeDelay(deltaOrAbsolute, absolute) {
+    if (absolute) {
+      delaySec = deltaOrAbsolute;
+    } else {
+      delaySec += deltaOrAbsolute;
+    }
+    delaySec = Math.min(MAX_DELAY, Math.max(MIN_DELAY, Math.round(delaySec / STEP) * STEP));
+    updateDelayReadout();
+    flashStatus("Delay " + delaySec.toFixed(1) + "s");
+  }
+
+  function sizeCanvas() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(window.innerWidth * dpr);
+    canvas.height = Math.round(window.innerHeight * dpr);
+  }
+
+  // Draw a source frame to fill the canvas (object-fit: cover), true-to-life (no mirror).
+  function drawCover(src, sw, sh) {
+    const cw = canvas.width, ch = canvas.height;
+    const scale = Math.max(cw / sw, ch / sh);
+    const dw = sw * scale, dh = sh * scale;
+    const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
+    ctx.drawImage(src, dx, dy, dw, dh);
+  }
+
+  async function captureLoop(now) {
+    if (!running) return;
+
+    // Capture a frame at most ~30fps
+    if (video.readyState >= 2 && (now - lastCaptureT) >= CAPTURE_INTERVAL) {
+      lastCaptureT = now;
+      try {
+        const bmp = await createImageBitmap(video);
+        frames.push({ bitmap: bmp, t: performance.now(), w: bmp.width, h: bmp.height });
+      } catch (e) { /* transient, ignore */ }
+    }
+
+    const nowMs = performance.now();
+
+    // Find the newest frame that is at least `delaySec` old → that's what we display.
+    const cutoff = nowMs - delaySec * 1000;
+    let showIdx = -1;
+    for (let i = 0; i < frames.length; i++) {
+      if (frames[i].t <= cutoff) showIdx = i; else break;
+    }
+    if (showIdx >= 0) {
+      const f = frames[showIdx];
+      drawCover(f.bitmap, f.w, f.h);
+    }
+
+    // Drop frames older than the retention window (kept longer than the delay so the
+    // "save clip" feature has 2×delay of history). While a save is in progress, defer
+    // closing bitmaps so the encoder can still read them.
+    const keepAfter = nowMs - retentionSec() * 1000;
+    let dropIdx = 0;
+    while (dropIdx < frames.length && frames[dropIdx].t < keepAfter) dropIdx++;
+    if (dropIdx > 0) {
+      for (let i = 0; i < dropIdx; i++) {
+        if (saving) deferredClose.push(frames[i].bitmap);
+        else frames[i].bitmap.close();
+      }
+      frames = frames.slice(dropIdx);
+    }
+
+    requestAnimationFrame(captureLoop);
+  }
+
+  async function listCameras() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === "videoinput");
+      if (cams.length > 1) {
+        cameraSelect.innerHTML = "";
+        cams.forEach((cam, i) => {
+          const opt = document.createElement("option");
+          opt.value = cam.deviceId;
+          opt.textContent = cam.label || ("Camera " + (i + 1));
+          cameraSelect.appendChild(opt);
+        });
+        cameraSelect.classList.remove("hidden-el");
+      }
+    } catch (e) { /* labels need permission; ignore */ }
+  }
+
+  async function startStream(deviceId) {
+    if (currentStream) {
+      currentStream.getTracks().forEach(t => t.stop());
+      currentStream = null;
+    }
+    const constraints = {
+      audio: false,
+      video: deviceId
+        ? { deviceId: { exact: deviceId } }
+        : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
+    };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    currentStream = stream;
+    video.srcObject = stream;
+    await video.play();
+  }
+
+  async function start() {
+    showError("");
+    startBtn.disabled = true;
+    startBtn.textContent = "Starting…";
+    try {
+      sizeCanvas();
+      await startStream(null);
+      await listCameras();
+
+      startOverlay.classList.add("hidden-el");
+      controls.classList.remove("hidden-el");
+      clipsToggle.classList.remove("hidden-el");
+      updateDelayReadout();
+      renderClips();
+
+      running = true;
+      lastCaptureT = 0;
+      requestAnimationFrame(captureLoop);
+      requestWakeLock();
+
+      flashStatus("Buffering " + delaySec.toFixed(1) + "s…");
+      scheduleControlsHide();
+    } catch (err) {
+      startBtn.disabled = false;
+      startBtn.textContent = "Start";
+      if (err && (err.name === "NotAllowedError" || err.name === "SecurityError")) {
+        showError("Camera permission was denied. Allow camera access for this page and press Start again.");
+      } else if (err && err.name === "NotFoundError") {
+        showError("No camera found on this Mac.");
+      } else {
+        showError("Couldn't start the camera: " + (err && err.message ? err.message : err));
+      }
+    }
+  }
+
+  // --- Fullscreen ---
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.();
+    }
+  }
+
+  // --- Controls auto-hide ---
+  let hideTimer = null;
+  function scheduleControlsHide() {
+    clearTimeout(hideTimer);
+    controls.classList.remove("hidden");
+    hideTimer = setTimeout(() => controls.classList.add("hidden"), 3000);
+  }
+
+  // --- Events ---
+  startBtn.addEventListener("click", start);
+  document.getElementById("plus").addEventListener("click", () => changeDelay(STEP));
+  document.getElementById("minus").addEventListener("click", () => changeDelay(-STEP));
+  document.getElementById("fullscreen").addEventListener("click", toggleFullscreen);
+  document.getElementById("save").addEventListener("click", () => { saveClip(); scheduleControlsHide(); });
+  clipsToggle.addEventListener("click", () => toggleSidebar());
+  document.getElementById("sidebar-close").addEventListener("click", () => toggleSidebar(false));
+  reviewClose.addEventListener("click", closeReview);
+  cameraSelect.addEventListener("change", async () => {
+    try { await startStream(cameraSelect.value); frames.forEach(f => f.bitmap.close()); frames = []; }
+    catch (e) { flashStatus("Couldn't switch camera"); }
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (!running) return;
+    // While reviewing a clip, only Escape (close) is active.
+    if (reviewClipId !== null) {
+      if (e.key === "Escape") { closeReview(); e.preventDefault(); }
+      return;
+    }
+    switch (e.key) {
+      case "ArrowUp": case "+": case "=": changeDelay(STEP); scheduleControlsHide(); e.preventDefault(); break;
+      case "ArrowDown": case "-": case "_": changeDelay(-STEP); scheduleControlsHide(); e.preventDefault(); break;
+      case "f": case "F": toggleFullscreen(); break;
+      case "c": case "C": toggleSidebar(); break;
+      case " ": case "Spacebar": saveClip(); scheduleControlsHide(); e.preventDefault(); break;
+    }
+  });
+
+  window.addEventListener("mousemove", () => { if (running) scheduleControlsHide(); });
+  window.addEventListener("resize", sizeCanvas);
+
+  // Secure-context guard (camera requires https or localhost)
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showError("This browser can't access the camera here. Please open the app via the launcher (http://localhost).");
+    startBtn.disabled = true;
+  }
+})();
+</script>
+</body>
+</html>
