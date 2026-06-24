@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Trick Shot</title>
 <style>
   :root { color-scheme: dark; }
@@ -31,7 +31,7 @@
 
   /* Controls */
   #controls {
-    position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%);
+    position: fixed; left: 50%; bottom: calc(36px + env(safe-area-inset-bottom)); transform: translateX(-50%);
     display: flex; align-items: center; gap: 14px;
     background: rgba(20,20,24,0.72); backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -66,7 +66,7 @@
 
   /* Clips toggle button (top-left) */
   #clips-toggle {
-    position: fixed; top: 18px; left: 18px; z-index: 30;
+    position: fixed; top: calc(18px + env(safe-area-inset-top)); left: calc(18px + env(safe-area-inset-left)); z-index: 30;
     display: flex; align-items: center; gap: 8px;
     padding: 10px 16px; border-radius: 12px; cursor: pointer;
     border: 1px solid rgba(255,255,255,0.10);
@@ -129,7 +129,7 @@
   }
   #review-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
   #review-close {
-    position: fixed; top: 18px; right: 18px; z-index: 26;
+    position: fixed; top: calc(18px + env(safe-area-inset-top)); right: calc(18px + env(safe-area-inset-right)); z-index: 26;
     width: 48px; height: 48px; border-radius: 999px; cursor: pointer;
     border: 1px solid rgba(255,255,255,0.14);
     background: rgba(20,20,24,0.72); backdrop-filter: blur(16px);
@@ -137,6 +137,32 @@
     color: #fff; font-size: 22px; line-height: 1;
   }
   #review-close:hover { background: rgba(60,60,66,0.9); }
+
+  /* ---- Portrait (phones held upright): clips become a bottom strip ---- */
+  @media (orientation: portrait) {
+    #sidebar {
+      top: auto; left: 0; right: 0; bottom: 0; width: auto;
+      height: 208px; max-height: 46vh;
+      flex-direction: column;
+      border-right: none; border-top: 1px solid rgba(255,255,255,0.08);
+      transform: translateY(100%);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    #sidebar.open { transform: translateY(0); }
+    #sidebar-head { padding: 10px 16px 6px; font-size: 15px; }
+    #sidebar-foot { display: none; }
+    #clips-list {
+      flex: 1 1 auto; flex-direction: row;
+      overflow-x: auto; overflow-y: hidden;
+      padding: 4px 14px 12px; gap: 12px;
+    }
+    .clip-item { margin-bottom: 0; width: 150px; flex: 0 0 150px; }
+    .clips-empty { white-space: normal; }
+    /* Lift the controls above the strip when it's open. */
+    body.clips-open #controls {
+      bottom: calc(208px + 14px + env(safe-area-inset-bottom));
+    }
+  }
 </style>
 </head>
 <body>
@@ -173,8 +199,8 @@
 
   <div id="start-overlay">
     <h1>Trick Shot</h1>
-    <p>See yourself on a delay. Press Start, allow the camera, then watch your moves play back a few seconds later. Tap <b>Space</b> to capture the last few seconds — saved clips appear in the <b>☰ Clips</b> panel, click one to replay it full screen.</p>
-    <button id="start-btn">Start</button>
+    <p>Press record. Land a great trick. Rewatch it on a set delay and learn faster with instant feedback — then save your best clips.</p>
+    <button id="start-btn">Record</button>
     <div id="error"></div>
   </div>
 
@@ -192,6 +218,11 @@
   const SAVE_CAP_SEC = 12;
   function saveWindowSec() { return Math.min(2 * delaySec, SAVE_CAP_SEC); }
   function retentionSec() { return Math.max(delaySec, saveWindowSec()); }
+
+  // Phones have far less RAM than a Mac — cap the stored frame size so the buffer
+  // can't crash mobile Safari. Desktop keeps full resolution.
+  const isMobile = window.matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) <= 820;
+  const CAPTURE_LONG_EDGE = isMobile ? 540 : 1280; // cap long edge of stored frames
 
   // --- Elements ---
   const video = document.createElement("video");
@@ -446,6 +477,7 @@
   function toggleSidebar(force) {
     sidebarOpen = (typeof force === "boolean") ? force : !sidebarOpen;
     sidebar.classList.toggle("open", sidebarOpen);
+    document.body.classList.toggle("clips-open", sidebarOpen); // lifts controls in portrait
   }
 
   let reviewClipId = null;
@@ -528,7 +560,11 @@
     if (video.readyState >= 2 && (now - lastCaptureT) >= CAPTURE_INTERVAL) {
       lastCaptureT = now;
       try {
-        const bmp = await createImageBitmap(video);
+        const vw = video.videoWidth, vh = video.videoHeight;
+        const longEdge = Math.max(vw, vh) || CAPTURE_LONG_EDGE;
+        const s = longEdge > CAPTURE_LONG_EDGE ? CAPTURE_LONG_EDGE / longEdge : 1;
+        const rw = Math.max(1, Math.round(vw * s)), rh = Math.max(1, Math.round(vh * s));
+        const bmp = await createImageBitmap(video, { resizeWidth: rw, resizeHeight: rh, resizeQuality: "medium" });
         frames.push({ bitmap: bmp, t: performance.now(), w: bmp.width, h: bmp.height });
       } catch (e) { /* transient, ignore */ }
     }
@@ -585,11 +621,12 @@
       currentStream.getTracks().forEach(t => t.stop());
       currentStream = null;
     }
+    const idealW = isMobile ? 960 : 1280, idealH = isMobile ? 540 : 720;
     const constraints = {
       audio: false,
       video: deviceId
-        ? { deviceId: { exact: deviceId } }
-        : { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
+        ? { deviceId: { exact: deviceId }, width: { ideal: idealW }, height: { ideal: idealH } }
+        : { facingMode: "user", width: { ideal: idealW }, height: { ideal: idealH } }
     };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     currentStream = stream;
@@ -609,6 +646,8 @@
       startOverlay.classList.add("hidden-el");
       controls.classList.remove("hidden-el");
       clipsToggle.classList.remove("hidden-el");
+      // iPhone Safari has no Fullscreen API — hide the button there.
+      if (!document.fullscreenEnabled) document.getElementById("fullscreen").classList.add("hidden-el");
       updateDelayReadout();
       renderClips();
 
@@ -621,7 +660,7 @@
       scheduleControlsHide();
     } catch (err) {
       startBtn.disabled = false;
-      startBtn.textContent = "Start";
+      startBtn.textContent = "Record";
       if (err && (err.name === "NotAllowedError" || err.name === "SecurityError")) {
         showError("Camera permission was denied. Allow camera access for this page and press Start again.");
       } else if (err && err.name === "NotFoundError") {
@@ -680,6 +719,8 @@
   });
 
   window.addEventListener("mousemove", () => { if (running) scheduleControlsHide(); });
+  // Touch has no mousemove — reveal the controls on any tap (so they're reachable without a mouse).
+  window.addEventListener("touchstart", () => { if (running && reviewClipId === null) scheduleControlsHide(); }, { passive: true });
   window.addEventListener("resize", sizeCanvas);
 
   // Secure-context guard (camera requires https or localhost)
